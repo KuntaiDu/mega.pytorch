@@ -10,8 +10,7 @@ pip install ninja yacs cython matplotlib tqdm opencv-python scipy
 
 # follow PyTorch installation in https://pytorch.org/get-started/locally/
 # we give the instructions for CUDA 10.0
-conda install -y pytorch==1.7.1 torchvision==0.8.2 torchaudio==0.7.2 cudatoolkit=10.2 -c pytorch
-
+conda install pytorch torchvision cudatoolkit=10.2 -c pytorch
 export INSTALL_DIR=$PWD
 
 # install pycocotools

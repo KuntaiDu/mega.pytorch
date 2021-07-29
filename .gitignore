@@ -7,6 +7,17 @@ mega_core.egg-info/
 build/
 dist/
 
+# training dirs
+pretrain/
+training_dir/
+visualize*
+*.tar.gz
+*.zip
+cityscapeScripts/
+cocoapi/
+apex/
+
+
 # pytorch/python/numpy formats
 *.pth
 *.pkl
@@ -33,3 +44,4 @@ dist/
 
 # project dirs
 /models
+
