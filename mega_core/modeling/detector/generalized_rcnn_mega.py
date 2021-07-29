@@ -17,6 +17,9 @@ from ..backbone import build_backbone
 from ..rpn.rpn import build_rpn
 from ..roi_heads.roi_heads import build_roi_heads
 
+from line_profiler import LineProfiler
+
+profiler = LineProfiler()
 
 class GeneralizedRCNNMEGA(nn.Module):
     """
@@ -44,6 +47,7 @@ class GeneralizedRCNNMEGA(nn.Module):
 
         self.all_frame_interval = cfg.MODEL.VID.MEGA.ALL_FRAME_INTERVAL
         self.key_frame_location = cfg.MODEL.VID.MEGA.KEY_FRAME_LOCATION
+        self.profiler = profiler
 
     def forward(self, images, targets=None):
         """
@@ -75,7 +79,9 @@ class GeneralizedRCNNMEGA(nn.Module):
 
             infos = images.copy()
             infos.pop("cur")
-            return self._forward_test(images["cur"], infos)
+
+
+            return forward_test(self, images["cur"], infos)
 
     def _forward_train(self, img_cur, imgs_l, imgs_m, imgs_g, targets):
         # 1. build memory
@@ -134,92 +140,93 @@ class GeneralizedRCNNMEGA(nn.Module):
         losses.update(proposal_losses)
         return losses
 
-    def _forward_test(self, imgs, infos, targets=None):
-        """
-        forward for the test phase.
-        :param imgs:
-        :param infos:
-        :param targets:
-        :return:
-        """
-        def update_feature(img=None, feats=None, proposals=None, proposals_feat=None):
-            assert (img is not None) or (feats is not None and proposals is not None and proposals_feat is not None)
+@profiler
+def forward_test(self, imgs, infos, targets=None):
+    """
+    forward for the test phase.
+    :param imgs:
+    :param infos:
+    :param targets:
+    :return:
+    """
+    def update_feature(img=None, feats=None, proposals=None, proposals_feat=None):
+        assert (img is not None) or (feats is not None and proposals is not None and proposals_feat is not None)
 
-            if img is not None:
-                feats = self.backbone(img)[0]
-                # note here it is `imgs`! for we only need its shape, it would not cause error, but is not explicit.
-                proposals = self.rpn(imgs, (feats,), version="ref")
-                proposals_feat = self.roi_heads.box.feature_extractor(feats, proposals, pre_calculate=True)
+        if img is not None:
+            feats = self.backbone(img)[0]
+            # note here it is `imgs`! for we only need its shape, it would not cause error, but is not explicit.
+            proposals = self.rpn(imgs, (feats,), version="ref")
+            proposals_feat = self.roi_heads.box.feature_extractor(feats, proposals, pre_calculate=True)
 
-            self.feats.append(feats)
-            self.proposals.append(proposals[0])
-            self.proposals_dis.append(proposals[0][:self.advanced_num])
-            self.proposals_feat.append(proposals_feat)
-            self.proposals_feat_dis.append(proposals_feat[:self.advanced_num])
+        self.feats.append(feats)
+        self.proposals.append(proposals[0])
+        self.proposals_dis.append(proposals[0][:self.advanced_num])
+        self.proposals_feat.append(proposals_feat)
+        self.proposals_feat_dis.append(proposals_feat[:self.advanced_num])
 
-        if targets is not None:
-            raise ValueError("In testing mode, targets should be None")
+    if targets is not None:
+        raise ValueError("In testing mode, targets should be None")
 
-        if infos["frame_category"] == 0:  # a new video
-            self.seg_len = infos["seg_len"]
-            self.end_id = 0
+    if infos["frame_category"] == 0:  # a new video
+        self.seg_len = infos["seg_len"]
+        self.end_id = 0
 
-            self.feats = deque(maxlen=self.all_frame_interval)
-            self.proposals = deque(maxlen=self.all_frame_interval)
-            self.proposals_dis = deque(maxlen=self.all_frame_interval)
-            self.proposals_feat = deque(maxlen=self.all_frame_interval)
-            self.proposals_feat_dis = deque(maxlen=self.all_frame_interval)
+        self.feats = deque(maxlen=self.all_frame_interval)
+        self.proposals = deque(maxlen=self.all_frame_interval)
+        self.proposals_dis = deque(maxlen=self.all_frame_interval)
+        self.proposals_feat = deque(maxlen=self.all_frame_interval)
+        self.proposals_feat_dis = deque(maxlen=self.all_frame_interval)
 
-            self.roi_heads.box.feature_extractor.init_memory()
-            if self.global_enable:
-                self.roi_heads.box.feature_extractor.init_global()
+        self.roi_heads.box.feature_extractor.init_memory()
+        if self.global_enable:
+            self.roi_heads.box.feature_extractor.init_global()
 
-            feats_cur = self.backbone(imgs.tensors)[0]
-            proposals_cur = self.rpn(imgs, (feats_cur, ), version="ref")
-            proposals_feat_cur = self.roi_heads.box.feature_extractor(feats_cur, proposals_cur, pre_calculate=True)
-            while len(self.feats) < self.key_frame_location + 1:
-                update_feature(None, feats_cur, proposals_cur, proposals_feat_cur)
+        feats_cur = self.backbone(imgs.tensors)[0]
+        proposals_cur = self.rpn(imgs, (feats_cur, ), version="ref")
+        proposals_feat_cur = self.roi_heads.box.feature_extractor(feats_cur, proposals_cur, pre_calculate=True)
+        while len(self.feats) < self.key_frame_location + 1:
+            update_feature(None, feats_cur, proposals_cur, proposals_feat_cur)
 
-            while len(self.feats) < self.all_frame_interval:
-                self.end_id = min(self.end_id + 1, self.seg_len - 1)
-                end_filename = infos["pattern"] % self.end_id
-                end_image = Image.open(infos["img_dir"] % end_filename).convert("RGB")
-
-                end_image = infos["transforms"](end_image)
-                if isinstance(end_image, tuple):
-                    end_image = end_image[0]
-                end_image = end_image.view(1, *end_image.shape).to(self.device)
-
-                update_feature(end_image)
-
-        elif infos["frame_category"] == 1:
+        while len(self.feats) < self.all_frame_interval:
             self.end_id = min(self.end_id + 1, self.seg_len - 1)
-            end_image = infos["ref_l"][0].tensors
+            end_filename = infos["pattern"] % self.end_id
+            end_image = Image.open(infos["img_dir"] % end_filename).convert("RGB")
+
+            end_image = infos["transforms"](end_image)
+            if isinstance(end_image, tuple):
+                end_image = end_image[0]
+            end_image = end_image.view(1, *end_image.shape).to(self.device)
 
             update_feature(end_image)
 
-        # 1. update global
-        if infos["ref_g"]:
-            for global_img in infos["ref_g"]:
-                feats = self.backbone(global_img.tensors)[0]
-                proposals = self.rpn(global_img, (feats,), version="ref")
-                proposals_feat = self.roi_heads.box.feature_extractor(feats, proposals, pre_calculate=True)
+    elif infos["frame_category"] == 1:
+        self.end_id = min(self.end_id + 1, self.seg_len - 1)
+        end_image = infos["ref_l"][0].tensors
 
-                self.roi_heads.box.feature_extractor.update_global(proposals_feat)
+        update_feature(end_image)
 
-        feats = self.feats[self.key_frame_location]
-        proposals, proposal_losses = self.rpn(imgs, (feats, ), None)
+    # 1. update global
+    if infos["ref_g"]:
+        for global_img in infos["ref_g"]:
+            feats = self.backbone(global_img.tensors)[0]
+            proposals = self.rpn(global_img, (feats,), version="ref")
+            proposals_feat = self.roi_heads.box.feature_extractor(feats, proposals, pre_calculate=True)
 
-        proposals_ref = cat_boxlist(list(self.proposals))
-        proposals_ref_dis = cat_boxlist(list(self.proposals_dis))
-        proposals_feat_ref = torch.cat(list(self.proposals_feat), dim=0)
-        proposals_feat_ref_dis = torch.cat(list(self.proposals_feat_dis), dim=0)
+            self.roi_heads.box.feature_extractor.update_global(proposals_feat)
 
-        proposals_list = [proposals, proposals_ref, proposals_ref_dis, proposals_feat_ref, proposals_feat_ref_dis]
+    feats = self.feats[self.key_frame_location]
+    proposals, proposal_losses = self.rpn(imgs, (feats, ), None)
 
-        if self.roi_heads:
-            x, result, detector_losses = self.roi_heads(feats, proposals_list, None)
-        else:
-            result = proposals
+    proposals_ref = cat_boxlist(list(self.proposals))
+    proposals_ref_dis = cat_boxlist(list(self.proposals_dis))
+    proposals_feat_ref = torch.cat(list(self.proposals_feat), dim=0)
+    proposals_feat_ref_dis = torch.cat(list(self.proposals_feat_dis), dim=0)
 
-        return result
+    proposals_list = [proposals, proposals_ref, proposals_ref_dis, proposals_feat_ref, proposals_feat_ref_dis]
+
+    if self.roi_heads:
+        x, result, detector_losses = self.roi_heads(feats, proposals_list, None)
+    else:
+        result = proposals
+
+    return result

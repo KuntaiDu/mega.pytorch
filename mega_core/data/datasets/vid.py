@@ -97,9 +97,9 @@ class VIDDataset(torch.utils.data.Dataset):
         target = target.clip_to_image(remove_empty=True)
 
         if self.transforms is not None:
-            img, target = self.transforms(img, target)
+            img2, target = self.transforms(img, target)
 
-        return img, target, idx
+        return img2, target, idx
 
     def _get_test(self, idx):
         return self._get_train(idx)
@@ -139,6 +139,7 @@ class VIDDataset(torch.utils.data.Dataset):
     def _preprocess_annotation(self, target):
         boxes = []
         gt_classes = []
+        trackids = []
 
         size = target.find("size")
         im_info = tuple(map(int, (size.find("height").text, size.find("width").text)))
@@ -158,10 +159,17 @@ class VIDDataset(torch.utils.data.Dataset):
             boxes.append(box)
             gt_classes.append(self.classes_to_ind[obj.find("name").text.lower().strip()])
 
+            try:
+                trackid =  int(obj.find("trackid").text)
+            except AttributeError:
+                trackid = -1
+            trackids.append(trackid)
+
         res = {
             "boxes": torch.tensor(boxes, dtype=torch.float32).reshape(-1, 4),
             "labels": torch.tensor(gt_classes),
             "im_info": im_info,
+            "trackids": torch.tensor(trackids),
         }
         return res
 
@@ -223,6 +231,7 @@ class VIDDataset(torch.utils.data.Dataset):
         height, width = anno["im_info"]
         target = BoxList(anno["boxes"].reshape(-1, 4), (width, height), mode="xyxy")
         target.add_field("labels", anno["labels"])
+        target.add_field("trackids", anno["trackids"])
 
         return target
 

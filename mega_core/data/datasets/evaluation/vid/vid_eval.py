@@ -9,20 +9,265 @@ import torch
 
 from mega_core.structures.bounding_box import BoxList
 from mega_core.structures.boxlist_ops import boxlist_iou
+from pathlib import Path
+import cv2
+from tqdm import tqdm
+from pdb import set_trace
+import math
+
+
+import yaml
+import numpy as np
+
+
+
+IOU_THRESH = 0.5
+CONF_THRESH = 0.3
+
+
+
+'''
+
+Kuntai: add functions for visualizations
+
+'''
+
+def compute_colors_for_labels( labels):
+    """
+    Simple function that adds fixed colors depending on the class
+    """
+    palette = torch.tensor([2 ** 25 - 1, 2 ** 15 - 1, 2 ** 21 - 1])
+    colors = labels[:, None] * palette
+    colors = (colors % 255).numpy().astype("uint8")
+    return colors
+
+def overlay_boxes(image, predictions, gt, error):
+    """
+    Adds the predicted boxes on top of the image
+    Arguments:
+        image (np.ndarray): an image as returned by OpenCV
+        predictions (BoxList): the result of the computation by the model.
+            It should contain the field `labels`.
+    """
+    labels = predictions.get_field("labels")
+    boxes = predictions.bbox
+
+    colors = compute_colors_for_labels(labels).tolist()
+
+    for box, color in zip(boxes, colors):
+        box = box.to(torch.int64)
+        top_left, bottom_right = box[:2].tolist(), box[2:].tolist()
+        if gt:
+            if error:
+                color = (0, 0, 255)
+            else:
+                color = (255, 255, 255)
+        image = cv2.rectangle(
+            image, tuple(top_left), tuple(bottom_right), tuple(color), 5
+        )
+
+    return image
+
+def overlay_class_names(image, predictions, gt):
+    """
+    Adds detected class names and scores in the positions defined by the
+    top-left corner of the predicted bounding box
+    Arguments:
+        image (np.ndarray): an image as returned by OpenCV
+        predictions (BoxList): the result of the computation by the model.
+            It should contain the field `scores` and `labels`.
+    """
+    CATEGORIES = ['__background__',  # always index 0
+                  'airplane', 'antelope', 'bear', 'bicycle',
+                  'bird', 'bus', 'car', 'cattle',
+                  'dog', 'domestic_cat', 'elephant', 'fox',
+                  'giant_panda', 'hamster', 'horse', 'lion',
+                  'lizard', 'monkey', 'motorcycle', 'rabbit',
+                  'red_panda', 'sheep', 'snake', 'squirrel',
+                  'tiger', 'train', 'turtle', 'watercraft',
+                  'whale', 'zebra']
+    
+    labels = predictions.get_field("labels").tolist()
+    scores = predictions.get_field("scores").tolist() if not gt else [1.00] * len(labels)
+    labels = [CATEGORIES[i] for i in labels]
+    boxes = predictions.bbox
+
+    template = "{}: {:.2f}"
+    for box, score, label in zip(boxes, scores, labels):
+        x, y = box[:2]
+        s = template.format(label, score)
+        cv2.putText(
+            image, s, (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2
+        )
+
+    return image
+
+def select_top_predictions(predictions):
+    """
+    Select only predictions which have a `score` > self.confidence_threshold,
+    and returns the predictions in descending order of score
+    Arguments:
+        predictions (BoxList): the result of the computation by the model.
+            It should contain the field `scores`.
+    Returns:
+        prediction (BoxList): the detected objects. Additional information
+            of the detection properties can be found in the fields of
+            the BoxList via `prediction.fields()`
+    """
+    thresh = 0.5
+    scores = predictions.get_field("scores")
+    keep = torch.nonzero(scores > thresh).squeeze(1)
+    predictions = predictions[keep]
+    scores = predictions.get_field("scores")
+    _, idx = scores.sort(0, descending=True)
+    return predictions[idx]
+
+def run_on_image(image, predictions, gt=False, error=False):
+    """
+    Arguments:
+        image
+        infos
+    Returns:
+        prediction (BoxList): the detected objects. Additional information
+            of the detection properties can be found in the fields of
+            the BoxList via `prediction.fields()`
+    """
+    if not gt:
+        top_predictions = select_top_predictions(predictions)
+    else:
+        top_predictions = predictions
+
+    result = image.copy()
+    result = overlay_boxes(result, top_predictions, gt, error)
+    result = overlay_class_names(result, top_predictions, gt)
+
+    return result
+
+
+
 
 
 def do_vid_evaluation(dataset, predictions, output_folder, box_only, motion_specific, logger):
     pred_boxlists = []
     gt_boxlists = []
-    for image_id, prediction in enumerate(predictions):
+
+    error_dict = yaml.load(open('video2error.yaml', 'r').read())
+
+    metric2identifier2IoU = defaultdict(lambda: defaultdict(list))
+
+    for image_id, prediction in enumerate(tqdm(predictions)):
         img_info = dataset.get_img_info(image_id)
         image_width = img_info["width"]
         image_height = img_info["height"]
+
         prediction = prediction.resize((image_width, image_height))
         pred_boxlists.append(prediction)
-
         gt_boxlist = dataset.get_groundtruth(image_id)
         gt_boxlists.append(gt_boxlist)
+
+        raw_image, _, filename = dataset.get_visualization(image_id)
+        video_name = '/'.join(filename.split('/')[:-1])
+
+        if len(gt_boxlist) == 0:
+            continue
+
+        # filter prediction.
+        prediction = prediction[prediction.get_field("scores") > CONF_THRESH]
+
+        trackids = gt_boxlist.get_field("trackids")
+
+        flag = False
+        if len(prediction) == 0:
+            for trackid in trackids:
+                identifier = (video_name, trackid.item())
+                metric2identifier2IoU["IoU"][identifier].append(0.)
+                metric2identifier2IoU["FN"][identifier].append(0.)
+                metric2identifier2IoU["box"][identifier].append(1.)
+        else:
+            if len(gt_boxlist) == 0:
+                continue
+            overlaps = boxlist_iou(prediction, gt_boxlist)
+
+            # clear IoUs with different labels
+            pred_labels = torch.cat([prediction.get_field("labels")[:, None]] * len(gt_boxlist), dim=1)
+            gt_labels = torch.cat([gt_boxlist.get_field("labels")[None, :]] * len(prediction), dim=0)
+            overlaps[pred_labels != gt_labels] = 0.
+            overlaps[overlaps <= IOU_THRESH] = 0.
+
+            IoUs, inds = overlaps.max(dim=0)
+            try:
+                assert len(IoUs) == len(inds) == len(trackids)
+            except AssertionError:
+                import pdb; pdb.set_trace()
+            for gt_idx, (IoU, pred_idx, trackid) in enumerate(zip(IoUs, inds, trackids)):
+
+                identifier = (video_name, trackid.item())
+                pred_size = prediction.area()[pred_idx]
+                gt_size =  gt_boxlist.area()[gt_idx]
+                metric2identifier2IoU["IoU"][identifier].append(IoU.item())
+                metric2identifier2IoU["FN"][identifier].append(float((IoU > IOU_THRESH).item()))
+                metric2identifier2IoU["box"][identifier].append(abs(pred_size - gt_size) / gt_size)
+
+        if image_id % 1000 == 0 and image_id != 0:
+            for x in metric2identifier2IoU:
+                print(x,end='\t')
+                print(
+                    '%.5f' % np.mean([np.mean(i) for i in metric2identifier2IoU[x].values()]), end = '\t'
+                )
+                print(
+                    '%.5f' % np.std([np.mean(i) for i in metric2identifier2IoU[x].values()]), end='\t'
+                )
+                print(
+                    '%.5f' % np.mean([len(i) for i in metric2identifier2IoU[x].values()]),
+                )
+            
+
+
+
+        # if video_name in error_dict.keys() and error_dict[video_name] > 150:
+
+        #     error = (my_eval_detection_vid(pred_boxlists[-1:], gt_boxlists[-1:]) < 0.6)
+
+        #     predict_image = run_on_image(raw_image, prediction, gt=False, error=error)
+        #     predict_image = run_on_image(predict_image, gt_boxlist, gt=True, error=error)
+
+        #     # write predicted image
+        #     Path('visualize/' + '/'.join(filename.split('/')[:-1])).mkdir(parents=True,exist_ok=True)
+        #     cv2.imwrite('visualize/' + filename + '.JPEG', predict_image)
+
+
+
+        # # if error is large
+        # if my_eval_detection_vid(pred_boxlists[-1:], gt_boxlists[-1:]) < 0.6:
+
+        #     # get prediction image and visualize
+        #     raw_image, _, filename = dataset.get_visualization(image_id)
+        #     predict_image = run_on_image(raw_image, prediction)
+        #     gt_image = run_on_image(raw_image, gt_boxlist, gt=True)
+
+        #     # write predicted image
+        #     Path('visualize/' + '/'.join(filename.split('/')[:-1])).mkdir(parents=True,exist_ok=True)
+        #     cv2.imwrite('visualize/' + filename + 'pre.JPEG', predict_image)
+        #     cv2.imwrite('visualize/' + filename + 'tru.JPEG', gt_image)
+
+    # import yaml
+    # with open('video2error.yaml', 'w') as f:
+    #     f.write(yaml.dump(error_dict))
+
+    
+    for x in metric2identifier2IoU:
+        print(x,end='\t')
+        print(
+            '%.5f' % np.mean([np.mean(i) for i in metric2identifier2IoU[x].values()]), end = '\t'
+        )
+        print(
+            '%.5f' % np.std([np.mean(i) for i in metric2identifier2IoU[x].values()]), end='\t'
+        )
+        print(
+            '%.5f' % np.mean([len(i) for i in metric2identifier2IoU[x].values()]),
+        )
+    import pdb; pdb.set_trace()
+
     if box_only:
         result = eval_proposals_vid(
             pred_boxlists=pred_boxlists,
@@ -118,6 +363,57 @@ def eval_proposals_vid(pred_boxlists, gt_boxlists, iou_thresh=0.5, limit=300):
         "recall": recall
     }
 
+def my_eval_detection_vid(pred_boxlists,
+                       gt_boxlists,
+                       iou_thresh=0.5,
+                       motion_ranges=[[0.0, 0.7], [0.7, 0.9], [0.9, 1.0]],
+                       motion_specific=False,
+                       use_07_metric=False):
+    assert len(gt_boxlists) == len(
+        pred_boxlists
+    ), "Length of gt and pred lists need to be same."
+
+    if motion_specific:
+        motion_iou_file = "mega_core/data/datasets/evaluation/vid/vid_groundtruth_motion_iou.mat"
+        motion_ious = sio.loadmat(motion_iou_file)
+        motion_ious = np.array([[motion_ious['motion_iou'][i][0][j][0] if len(motion_ious['motion_iou'][i][0][j]) != 0 else 0 \
+                                for j in range(len(motion_ious['motion_iou'][i][0]))] \
+                               for i in range(len(motion_ious['motion_iou']))])
+    else:
+        motion_ious = None
+
+    motion_ap = defaultdict(dict)
+    for motion_index, motion_range in enumerate(motion_ranges):
+        # print("Evaluating motion iou range {} - {}".format(motion_range[0], motion_range[1]))
+        try:
+            prec, rec = calc_detection_vid_prec_rec(
+                pred_boxlists=pred_boxlists,
+                gt_boxlists=gt_boxlists,
+                motion_ious=motion_ious,
+                iou_thresh=iou_thresh,
+                motion_range=motion_range,
+            )
+        except ValueError:
+            return 0.
+
+        ap = calc_detection_vid_ap(prec, rec, use_07_metric=use_07_metric)
+        motion_ap[motion_index] = {"ap": ap, "map": np.nanmean(ap)}
+
+    # print(np.std([motion_ap[key]['map'] for key in motion_ap.keys()])) 
+    # print(len(pred_boxlists[0]))
+    # print(len(gt_boxlists[0]))
+    if math.isnan(np.std([motion_ap[key]['map'] for key in motion_ap.keys()])):
+        new_pred = select_top_predictions(pred_boxlists[0])
+        gt = gt_boxlists[0]
+        if len(new_pred) == 0 and len(gt) == 0:
+            return 1.
+        else:
+            return 0.
+
+
+    return motion_ap[0]['map']
+
+
 
 def eval_detection_vid(pred_boxlists,
                        gt_boxlists,
@@ -138,7 +434,7 @@ def eval_detection_vid(pred_boxlists,
     else:
         motion_ious = None
 
-    motion_ap = defaultdict(dict)
+    motion_ap = defaultdict(int)
     for motion_index, motion_range in enumerate(motion_ranges):
         print("Evaluating motion iou range {} - {}".format(motion_range[0], motion_range[1]))
         prec, rec = calc_detection_vid_prec_rec(
@@ -253,7 +549,7 @@ def calc_detection_vid_prec_rec(gt_boxlists, pred_boxlists, motion_ious, iou_thr
                     # pred_ignore[l].append(0)
 
     n_fg_class = max(n_pos.keys()) + 1
-    print(n_pos)
+    # print(n_pos)
     prec = [None] * n_fg_class
     rec = [None] * n_fg_class
 

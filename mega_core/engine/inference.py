@@ -18,6 +18,12 @@ def compute_on_dataset(model, data_loader, device, bbox_aug, method, timer=None)
     model.eval()
     results_dict = {}
     cpu_device = torch.device("cpu")
+    # with torch.profiler.profile(
+    #         schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
+    #         on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/MEGA'),
+    #         record_shapes=True,
+    #         with_stack=True
+    # ) as profiler:
     for i, batch in enumerate(tqdm(data_loader)):
         images, targets, image_ids = batch
         with torch.no_grad():
@@ -44,6 +50,11 @@ def compute_on_dataset(model, data_loader, device, bbox_aug, method, timer=None)
         results_dict.update(
             {img_id: result for img_id, result in zip(image_ids, output)}
         )
+        # profiler.step()
+        # if i > 20:
+        #     with open('MEGA_inference_profile.txt', 'w') as f:
+        #         model.profiler.print_stats(f)
+        #     break
     return results_dict
 
 
