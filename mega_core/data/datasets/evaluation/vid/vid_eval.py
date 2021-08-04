@@ -205,7 +205,7 @@ def do_vid_evaluation(dataset, predictions, output_folder, box_only, motion_spec
                 pred_size = prediction.area()[pred_idx]
                 gt_size =  gt_boxlist.area()[gt_idx]
                 metric2identifier2IoU["IoU"][identifier].append(IoU.item())
-                metric2identifier2IoU["FN"][identifier].append(float((IoU > IOU_THRESH).item()))
+                metric2identifier2IoU["FN"][identifier].append(1.0 - float((IoU > IOU_THRESH).item()))
                 metric2identifier2IoU["box"][identifier].append(abs(pred_size - gt_size) / gt_size)
 
         if image_id % 1000 == 0 and image_id != 0:

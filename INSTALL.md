@@ -1,22 +1,3 @@
-## Installation
-
-### Requirements:
-- PyTorch 1.3 (1.4 may cause some errors.)
-- torchvision from master
-- cocoapi
-- yacs
-- matplotlib
-- GCC >= 4.9
-- OpenCV
-- CUDA >= 9.2
-
-
-### Option 1: Step-by-step installation
-
-```bash
-# first, make sure that your conda is setup properly with the right environment
-# for that, check that `which conda`, `which pip` and `which python` points to the
-# right path. From a clean conda env, this is what you need to do
 
 conda create --name MEGA -y python=3.7
 source activate MEGA
@@ -65,7 +46,3 @@ python setup.py build develop
 pip install 'pillow<7.0.0'
 
 unset INSTALL_DIR
-
-# or if you are on macOS
-# MACOSX_DEPLOYMENT_TARGET=10.9 CC=clang CXX=clang++ python setup.py build develop
-```

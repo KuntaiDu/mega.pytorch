@@ -688,13 +688,15 @@ class MEGAFeatureExtractor(AttentionExtractor):
                        "feats": torch.cat(list(self.mem_queue_list[i]["feats"]), dim=0)}
 
     def update_lm(self, feats, i=0):
-        feats_ref = self.global_cache[-1]["feats"]
 
-        attention = self.attention_module_multi_head(feats, feats_ref, None,
-                                                     feat_dim=1024, group=16, dim=(1024, 1024, 1024),
-                                                     index=i, ver="global")
+        if self.global_enable and self.global_cahce:
+            feats_ref = self.global_cache[-1]["feats"]
 
-        feats = feats + attention
+            attention = self.attention_module_multi_head(feats, feats_ref, None,
+                                                        feat_dim=1024, group=16, dim=(1024, 1024, 1024),
+                                                        index=i, ver="global")
+
+            feats = feats + attention
 
         return feats
 
@@ -719,11 +721,10 @@ class MEGAFeatureExtractor(AttentionExtractor):
             x_key = F.relu(self.l_fcs[0](x_key))
         x = F.relu(self.l_fcs[0](x))
 
-        if self.global_cache:
-            if ver == "local":
-                rois_key = proposals_key[0].bbox
-                x_key = self.update_lm(x_key)
-            x = self.update_lm(x)
+        if ver == "local":
+            rois_key = proposals_key[0].bbox
+            x_key = self.update_lm(x_key)
+        x = self.update_lm(x)
 
         # distillation
         if ver in ("local", "memory"):

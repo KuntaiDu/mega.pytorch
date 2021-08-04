@@ -13,9 +13,11 @@ training_dir/
 visualize*
 *.tar.gz
 *.zip
-cityscapeScripts/
+cityscapesScripts/
+datasets/
 cocoapi/
 apex/
+mp4/
 
 
 # pytorch/python/numpy formats

@@ -224,6 +224,8 @@ def forward_test(self, imgs, infos, targets=None):
 
     proposals_list = [proposals, proposals_ref, proposals_ref_dis, proposals_feat_ref, proposals_feat_ref_dis]
 
+
+
     if self.roi_heads:
         x, result, detector_losses = self.roi_heads(feats, proposals_list, None)
     else:
