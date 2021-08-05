@@ -754,11 +754,9 @@ class MEGAFeatureExtractor(AttentionExtractor):
 
     def generate_feats_test(self, x, proposals):
         proposals, proposals_ref, proposals_ref_dis, x_ref, x_ref_dis = proposals
-
-        if self.global_enable and self.global_cache:
-            x = self.update_lm(x)
-            x_ref = self.update_lm(x_ref)
-            x_ref_dis = self.update_lm(x_ref_dis)
+        x = self.update_lm(x)
+        x_ref = self.update_lm(x_ref)
+        x_ref_dis = self.update_lm(x_ref_dis)
 
         rois_key = proposals[0].bbox
         rois = proposals_ref.bbox

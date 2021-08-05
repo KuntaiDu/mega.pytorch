@@ -151,11 +151,12 @@ def do_vid_evaluation(dataset, predictions, output_folder, box_only, motion_spec
     pred_boxlists = []
     gt_boxlists = []
 
-    error_dict = yaml.load(open('video2error.yaml', 'r').read())
+    # error_dict = yaml.load(open('video2error.yaml', 'r').read())
 
     metric2identifier2IoU = defaultdict(lambda: defaultdict(list))
 
     for image_id, prediction in enumerate(tqdm(predictions)):
+
         img_info = dataset.get_img_info(image_id)
         image_width = img_info["width"]
         image_height = img_info["height"]
@@ -207,19 +208,6 @@ def do_vid_evaluation(dataset, predictions, output_folder, box_only, motion_spec
                 metric2identifier2IoU["IoU"][identifier].append(IoU.item())
                 metric2identifier2IoU["FN"][identifier].append(1.0 - float((IoU > IOU_THRESH).item()))
                 metric2identifier2IoU["box"][identifier].append(abs(pred_size - gt_size) / gt_size)
-
-        if image_id % 1000 == 0 and image_id != 0:
-            for x in metric2identifier2IoU:
-                print(x,end='\t')
-                print(
-                    '%.5f' % np.mean([np.mean(i) for i in metric2identifier2IoU[x].values()]), end = '\t'
-                )
-                print(
-                    '%.5f' % np.std([np.mean(i) for i in metric2identifier2IoU[x].values()]), end='\t'
-                )
-                print(
-                    '%.5f' % np.mean([len(i) for i in metric2identifier2IoU[x].values()]),
-                )
             
 
 
@@ -253,20 +241,6 @@ def do_vid_evaluation(dataset, predictions, output_folder, box_only, motion_spec
     # import yaml
     # with open('video2error.yaml', 'w') as f:
     #     f.write(yaml.dump(error_dict))
-
-    
-    for x in metric2identifier2IoU:
-        print(x,end='\t')
-        print(
-            '%.5f' % np.mean([np.mean(i) for i in metric2identifier2IoU[x].values()]), end = '\t'
-        )
-        print(
-            '%.5f' % np.std([np.mean(i) for i in metric2identifier2IoU[x].values()]), end='\t'
-        )
-        print(
-            '%.5f' % np.mean([len(i) for i in metric2identifier2IoU[x].values()]),
-        )
-    import pdb; pdb.set_trace()
 
     if box_only:
         result = eval_proposals_vid(
@@ -306,10 +280,22 @@ def do_vid_evaluation(dataset, predictions, output_folder, box_only, motion_spec
         result_str += "{:<16}: {:.4f}\n".format(
             dataset.map_class_id_to_class_name(i), ap
         )
+
+    result_str += '\n'
+    for x in metric2identifier2IoU:
+
+        result_str += "%s: mean %0.5f, std %0.5f\n" % (
+            x, 
+            np.mean([np.mean(i) for i in metric2identifier2IoU[x].values()]), 
+            np.std([np.mean(i) for i in metric2identifier2IoU[x].values()]))
+
+
     logger.info("\n" + result_str)
     if output_folder:
         with open(os.path.join(output_folder, "result.txt"), "w") as fid:
             fid.write(result_str)
+
+    
 
     return result
 

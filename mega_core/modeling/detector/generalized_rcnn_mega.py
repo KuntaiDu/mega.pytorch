@@ -49,6 +49,12 @@ class GeneralizedRCNNMEGA(nn.Module):
         self.key_frame_location = cfg.MODEL.VID.MEGA.KEY_FRAME_LOCATION
         self.profiler = profiler
 
+        if cfg.MODEL.VID.MEGA.FREEZE_BACKBONE_RPN:
+            for param in self.backbone.parameters():
+                param.requires_grad = False
+            for param in self.rpn.parameters():
+                param.requires_grad = False
+
     def forward(self, images, targets=None):
         """
         Arguments:
@@ -140,7 +146,7 @@ class GeneralizedRCNNMEGA(nn.Module):
         losses.update(proposal_losses)
         return losses
 
-@profiler
+# @profiler
 def forward_test(self, imgs, infos, targets=None):
     """
     forward for the test phase.
