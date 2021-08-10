@@ -49,11 +49,6 @@ class GeneralizedRCNNMEGA(nn.Module):
         self.key_frame_location = cfg.MODEL.VID.MEGA.KEY_FRAME_LOCATION
         self.profiler = profiler
 
-        if cfg.MODEL.VID.MEGA.FREEZE_BACKBONE_RPN:
-            for param in self.backbone.parameters():
-                param.requires_grad = False
-            for param in self.rpn.parameters():
-                param.requires_grad = False
 
     def forward(self, images, targets=None):
         """
@@ -77,7 +72,9 @@ class GeneralizedRCNNMEGA(nn.Module):
             images["ref_m"] = [to_image_list(image) for image in images["ref_m"]]
             images["ref_g"] = [to_image_list(image) for image in images["ref_g"]]
 
-            return self._forward_train(images["cur"], images["ref_l"], images["ref_m"], images["ref_g"], targets)
+            return forward_train_new(self, images["cur"], images["ref_l"], images["ref_g"], targets)
+
+            # return self._forward_train(images["cur"], images["ref_l"], images["ref_m"], images["ref_g"], targets)
         else:
             images["cur"] = to_image_list(images["cur"])
             images["ref_l"] = [to_image_list(image) for image in images["ref_l"]]
@@ -238,3 +235,88 @@ def forward_test(self, imgs, infos, targets=None):
         result = proposals
 
     return result
+
+
+
+
+def forward_train_new(self, cur, local_imgs, global_imgs, targets):
+
+
+    def update_feature(img=None, feats=None, proposals=None, proposals_feat=None):
+        assert (img is not None) or (feats is not None and proposals is not None and proposals_feat is not None)
+
+        with torch.no_grad():
+
+            if img is not None:
+                feats = self.backbone(img)[0]
+                # note here it is `imgs`! for we only need its shape, it would not cause error, but is not explicit.
+                proposals = self.rpn(cur, (feats,), version="ref")
+                proposals_feat = self.roi_heads.box.feature_extractor(feats, proposals, pre_calculate=True)
+
+            self.feats.append(feats)
+            self.proposals.append(proposals[0])
+            self.proposals_dis.append(proposals[0][:self.advanced_num])
+            self.proposals_feat.append(proposals_feat)
+            self.proposals_feat_dis.append(proposals_feat[:self.advanced_num])
+
+    assert targets is not None
+
+    self.end_id = 0
+
+    all_frame_interval = 9
+
+    self.feats = deque(maxlen=all_frame_interval)
+    self.proposals = deque(maxlen=all_frame_interval)
+    self.proposals_dis = deque(maxlen=all_frame_interval)
+    self.proposals_feat = deque(maxlen=all_frame_interval)
+    self.proposals_feat_dis = deque(maxlen=all_frame_interval)
+
+    self.roi_heads.box.feature_extractor.init_memory()
+    if self.global_enable:
+        self.roi_heads.box.feature_extractor.init_global()
+
+    self.roi_heads.box.feature_extractor.training = False
+    self.roi_heads.training = False
+    self.rpn.training = False
+
+    for global_img in global_imgs:
+
+        with torch.no_grad():
+            feats = self.backbone(global_img.tensors)[0]
+            proposals = self.rpn(global_img, (feats,), version="ref")
+
+        # still wanna train the RoI head
+        proposals_feat = self.roi_heads.box.feature_extractor(feats, proposals, pre_calculate=True)
+
+        self.roi_heads.box.feature_extractor.update_global(proposals_feat)
+
+    for i, local_img in enumerate(local_imgs + [cur]):
+        update_feature(local_img.tensors)
+
+        feats = self.feats[-1]
+        proposals, proposal_losses = self.rpn(cur, (feats, ), None)
+
+        proposals_ref = cat_boxlist(list(self.proposals))
+        proposals_ref_dis = cat_boxlist(list(self.proposals_dis))
+        proposals_feat_ref = torch.cat(list(self.proposals_feat), dim=0)
+        proposals_feat_ref_dis = torch.cat(list(self.proposals_feat_dis), dim=0)
+
+        proposals_list = [proposals, proposals_ref, proposals_ref_dis, proposals_feat_ref, proposals_feat_ref_dis]
+
+
+        if i == len(local_imgs + [cur]) - 1:
+            self.roi_heads.training = True
+
+        if self.roi_heads:
+            x, result, detector_losses = self.roi_heads(feats, proposals_list, targets)
+        else:
+            result = proposals
+
+
+    losses = {}
+    losses.update(detector_losses)
+    losses.update(proposal_losses)
+    return losses
+
+
+

@@ -49,12 +49,7 @@ def train(cfg, local_rank, distributed):
     amp_opt_level = 'O1' if use_mixed_precision else 'O0'
     model, optimizer = amp.initialize(model, optimizer, opt_level=amp_opt_level)
 
-    if distributed:
-        model = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[local_rank], output_device=local_rank,
-            # this should be removed if we update BatchNorm stats
-            broadcast_buffers=False,
-        )
+    
 
     arguments = {}
     arguments["iteration"] = 0
@@ -71,6 +66,21 @@ def train(cfg, local_rank, distributed):
 
     if not cfg.MODEL.VID.IGNORE:
         arguments.update(extra_checkpoint_data)
+
+    arguments["iteration"] = 50000
+
+    if cfg.MODEL.VID.MEGA.FREEZE_BACKBONE_RPN:
+        for param in model.backbone.parameters():
+            param.requires_grad = False
+        for param in model.rpn.parameters():
+            param.requires_grad = False
+
+    if distributed:
+        model = torch.nn.parallel.DistributedDataParallel(
+            model, device_ids=[local_rank], output_device=local_rank,
+            # this should be removed if we update BatchNorm stats
+            broadcast_buffers=False,
+        )
 
     data_loader = make_data_loader(
         cfg,

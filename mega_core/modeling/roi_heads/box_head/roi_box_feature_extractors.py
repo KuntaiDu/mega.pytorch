@@ -689,7 +689,7 @@ class MEGAFeatureExtractor(AttentionExtractor):
 
     def update_lm(self, feats, i=0):
 
-        if self.global_enable and self.global_cahce:
+        if self.global_enable and self.global_cache:
             feats_ref = self.global_cache[-1]["feats"]
 
             attention = self.attention_module_multi_head(feats, feats_ref, None,

@@ -37,7 +37,7 @@ class VIDMEGADataset(VIDDataset):
         img_refs_g = []
         if hasattr(self, "pattern"):
             offsets = np.random.choice(cfg.MODEL.VID.MEGA.MAX_OFFSET - cfg.MODEL.VID.MEGA.MIN_OFFSET + 1,
-                                       cfg.MODEL.VID.MEGA.REF_NUM_LOCAL, replace=False) + cfg.MODEL.VID.MEGA.MIN_OFFSET
+                                       cfg.MODEL.VID.MEGA.REF_NUM_LOCAL, replace=True) + cfg.MODEL.VID.MEGA.MIN_OFFSET
             for i in range(len(offsets)):
                 ref_id = min(max(self.frame_seg_id[idx] + offsets[i], 0), self.frame_seg_len[idx] - 1)
                 ref_filename = self.pattern[idx] % ref_id
@@ -48,7 +48,7 @@ class VIDMEGADataset(VIDDataset):
             if cfg.MODEL.VID.MEGA.MEMORY.ENABLE:
                 ref_id_center = max(self.frame_seg_id[idx] - cfg.MODEL.VID.MEGA.ALL_FRAME_INTERVAL, 0)
                 offsets = np.random.choice(cfg.MODEL.VID.MEGA.MAX_OFFSET - cfg.MODEL.VID.MEGA.MIN_OFFSET + 1,
-                                           cfg.MODEL.VID.MEGA.REF_NUM_MEM, replace=False) + cfg.MODEL.VID.MEGA.MIN_OFFSET
+                                           cfg.MODEL.VID.MEGA.REF_NUM_MEM, replace=True) + cfg.MODEL.VID.MEGA.MIN_OFFSET
                 for i in range(len(offsets)):
                     ref_id = min(max(ref_id_center + offsets[i], 0), self.frame_seg_len[idx] - 1)
                     ref_filename = self.pattern[idx] % ref_id
@@ -57,7 +57,7 @@ class VIDMEGADataset(VIDDataset):
 
             # global frames
             if cfg.MODEL.VID.MEGA.GLOBAL.ENABLE:
-                ref_ids = np.random.choice(self.frame_seg_len[idx], cfg.MODEL.VID.MEGA.REF_NUM_GLOBAL, replace=False)
+                ref_ids = np.random.choice(self.frame_seg_len[idx], cfg.MODEL.VID.MEGA.REF_NUM_GLOBAL, replace=True)
                 for ref_id in ref_ids:
                     ref_filename = self.pattern[idx] % ref_id
                     img_ref = Image.open(self._img_dir % ref_filename).convert("RGB")
