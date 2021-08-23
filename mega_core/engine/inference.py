@@ -13,6 +13,8 @@ from ..utils.comm import synchronize
 from ..utils.timer import Timer, get_time_str
 from .bbox_aug import im_detect_bbox_aug
 
+import logging
+
 
 def compute_on_dataset(model, data_loader, device, bbox_aug, method, timer=None):
     model.eval()

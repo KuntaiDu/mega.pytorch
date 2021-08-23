@@ -31,35 +31,68 @@ class VIDMEGADataset(VIDDataset):
         filename = self.image_set_index[idx]
         img = Image.open(self._img_dir % filename).convert("RGB")
 
+        
         # if a video dataset
         img_refs_l = []
         img_refs_m = []
         img_refs_g = []
+
+        local_targets = []
         if hasattr(self, "pattern"):
+
+
+            # collect local targets
+            cur_id = self.frame_seg_id[idx]
+            seg_id_2_target = {}
+            for i in range((cfg.MODEL.VID.MEGA.MAX_OFFSET - cfg.MODEL.VID.MEGA.MIN_OFFSET + 1)):
+                if idx - i < 0:
+                    break
+                if self.pattern[idx] == self.pattern[idx - i]:
+                    # idx and idx-i are in the same video. Record idx - i and its corresponding id
+                    seg_id_2_target[self.frame_seg_id[idx - i]] = self.get_groundtruth(idx - i).clip_to_image(remove_empty=True)
+                else:
+                    break
+
+            
             offsets = np.random.choice(cfg.MODEL.VID.MEGA.MAX_OFFSET - cfg.MODEL.VID.MEGA.MIN_OFFSET + 1,
                                        cfg.MODEL.VID.MEGA.REF_NUM_LOCAL, replace=True) + cfg.MODEL.VID.MEGA.MIN_OFFSET
             for i in range(len(offsets)):
-                ref_id = min(max(self.frame_seg_id[idx] + offsets[i], 0), self.frame_seg_len[idx] - 1)
+                ref_id = min(max(cur_id - offsets[i], 0), cur_id)
                 ref_filename = self.pattern[idx] % ref_id
+                # ensure that we take the images from history.
+                if ref_id > cur_id:
+                    print(ref_id, cur_id)
+                assert ref_id <= cur_id
                 img_ref = Image.open(self._img_dir % ref_filename).convert("RGB")
                 img_refs_l.append(img_ref)
 
+                if ref_id in seg_id_2_target:
+                    local_targets.append(seg_id_2_target[ref_id])
+                else:
+                    local_targets.append(None)
+
             # memory frames
             if cfg.MODEL.VID.MEGA.MEMORY.ENABLE:
-                ref_id_center = max(self.frame_seg_id[idx] - cfg.MODEL.VID.MEGA.ALL_FRAME_INTERVAL, 0)
+                ref_id_center = max(cur_id - (cfg.MODEL.VID.MEGA.MAX_OFFSET - cfg.MODEL.VID.MEGA.MIN_OFFSET), 0)
                 offsets = np.random.choice(cfg.MODEL.VID.MEGA.MAX_OFFSET - cfg.MODEL.VID.MEGA.MIN_OFFSET + 1,
                                            cfg.MODEL.VID.MEGA.REF_NUM_MEM, replace=True) + cfg.MODEL.VID.MEGA.MIN_OFFSET
                 for i in range(len(offsets)):
-                    ref_id = min(max(ref_id_center + offsets[i], 0), self.frame_seg_len[idx] - 1)
+                    ref_id = min(max(ref_id_center + offsets[i], 0), cur_id)
                     ref_filename = self.pattern[idx] % ref_id
+                    # ensure that we take the images from history.
+                    assert ref_id <= cur_id
                     img_ref = Image.open(self._img_dir % ref_filename).convert("RGB")
                     img_refs_m.append(img_ref)
 
             # global frames
+            # Kuntai: add a window constraint here
             if cfg.MODEL.VID.MEGA.GLOBAL.ENABLE:
-                ref_ids = np.random.choice(self.frame_seg_len[idx], cfg.MODEL.VID.MEGA.REF_NUM_GLOBAL, replace=True)
+
+                ref_ids = np.random.choice(min(cur_id+1, cfg.MODEL.VID.MEGA.GLOBAL.WINDOW), cfg.MODEL.VID.MEGA.REF_NUM_GLOBAL, replace=True)
                 for ref_id in ref_ids:
-                    ref_filename = self.pattern[idx] % ref_id
+                    ref_filename = self.pattern[idx] % (cur_id - ref_id)
+                    # ensure that we take the images from history.
+                    assert ref_id <= cur_id
                     img_ref = Image.open(self._img_dir % ref_filename).convert("RGB")
                     img_refs_g.append(img_ref)
         else:
@@ -89,6 +122,7 @@ class VIDMEGADataset(VIDDataset):
         images["ref_l"] = img_refs_l
         images["ref_m"] = img_refs_m
         images["ref_g"] = img_refs_g
+        images["ref_l_targets"] = local_targets
 
         return images, target, idx
 

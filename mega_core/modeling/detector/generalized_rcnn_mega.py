@@ -42,6 +42,9 @@ class GeneralizedRCNNMEGA(nn.Module):
         self.memory_enable = cfg.MODEL.VID.MEGA.MEMORY.ENABLE
         self.global_enable = cfg.MODEL.VID.MEGA.GLOBAL.ENABLE
 
+        # kuntai
+        self.recurrent_disable = cfg.MODEL.VID.MEGA.RECURRENT_DISABLE
+
         self.base_num = cfg.MODEL.VID.RPN.REF_POST_NMS_TOP_N
         self.advanced_num = int(self.base_num * cfg.MODEL.VID.MEGA.RATIO)
 
@@ -72,7 +75,11 @@ class GeneralizedRCNNMEGA(nn.Module):
             images["ref_m"] = [to_image_list(image) for image in images["ref_m"]]
             images["ref_g"] = [to_image_list(image) for image in images["ref_g"]]
 
-            return forward_train_new(self, images["cur"], images["ref_l"], images["ref_g"], targets)
+
+            if self.recurrent_disable:
+                return self._forward_train(images["cur"], images["ref_l"], images["ref_m"], images["ref_g"], targets)
+            else:
+                return forward_train_new(self, images["cur"], images["ref_l"], images["ref_g"], targets)
 
             # return self._forward_train(images["cur"], images["ref_l"], images["ref_m"], images["ref_g"], targets)
         else:
@@ -245,19 +252,17 @@ def forward_train_new(self, cur, local_imgs, global_imgs, targets):
     def update_feature(img=None, feats=None, proposals=None, proposals_feat=None):
         assert (img is not None) or (feats is not None and proposals is not None and proposals_feat is not None)
 
-        with torch.no_grad():
+        if img is not None:
+            feats = self.backbone(img)[0]
+            # note here it is `imgs`! for we only need its shape, it would not cause error, but is not explicit.
+            proposals = self.rpn(cur, (feats,), version="ref")
+            proposals_feat = self.roi_heads.box.feature_extractor(feats, proposals, pre_calculate=True)
 
-            if img is not None:
-                feats = self.backbone(img)[0]
-                # note here it is `imgs`! for we only need its shape, it would not cause error, but is not explicit.
-                proposals = self.rpn(cur, (feats,), version="ref")
-                proposals_feat = self.roi_heads.box.feature_extractor(feats, proposals, pre_calculate=True)
-
-            self.feats.append(feats)
-            self.proposals.append(proposals[0])
-            self.proposals_dis.append(proposals[0][:self.advanced_num])
-            self.proposals_feat.append(proposals_feat)
-            self.proposals_feat_dis.append(proposals_feat[:self.advanced_num])
+        self.feats.append(feats)
+        self.proposals.append(proposals[0])
+        self.proposals_dis.append(proposals[0][:self.advanced_num])
+        self.proposals_feat.append(proposals_feat)
+        self.proposals_feat_dis.append(proposals_feat[:self.advanced_num])
 
     assert targets is not None
 
@@ -275,42 +280,54 @@ def forward_train_new(self, cur, local_imgs, global_imgs, targets):
     if self.global_enable:
         self.roi_heads.box.feature_extractor.init_global()
 
-    self.roi_heads.box.feature_extractor.training = False
-    self.roi_heads.training = False
-    self.rpn.training = False
-
     for global_img in global_imgs:
 
         with torch.no_grad():
             feats = self.backbone(global_img.tensors)[0]
             proposals = self.rpn(global_img, (feats,), version="ref")
 
-        # still wanna train the RoI head
-        proposals_feat = self.roi_heads.box.feature_extractor(feats, proposals, pre_calculate=True)
+            # still wanna train the RoI head
+            proposals_feat = self.roi_heads.box.feature_extractor(feats, proposals, pre_calculate=True)
 
-        self.roi_heads.box.feature_extractor.update_global(proposals_feat)
+            self.roi_heads.box.feature_extractor.update_global(proposals_feat)
 
-    for i, local_img in enumerate(local_imgs + [cur]):
-        update_feature(local_img.tensors)
+    for i, local_img in enumerate(local_imgs):
 
-        feats = self.feats[-1]
-        proposals, proposal_losses = self.rpn(cur, (feats, ), None)
+        with torch.no_grad():
+            update_feature(local_img.tensors)
+            feats = self.feats[-1]
+            proposals, proposal_losses = self.rpn(cur, (feats, ), targets)
 
-        proposals_ref = cat_boxlist(list(self.proposals))
-        proposals_ref_dis = cat_boxlist(list(self.proposals_dis))
-        proposals_feat_ref = torch.cat(list(self.proposals_feat), dim=0)
-        proposals_feat_ref_dis = torch.cat(list(self.proposals_feat_dis), dim=0)
+            proposals_ref = cat_boxlist(list(self.proposals))
+            proposals_ref_dis = cat_boxlist(list(self.proposals_dis))
+            proposals_feat_ref = torch.cat(list(self.proposals_feat), dim=0)
+            proposals_feat_ref_dis = torch.cat(list(self.proposals_feat_dis), dim=0)
 
-        proposals_list = [proposals, proposals_ref, proposals_ref_dis, proposals_feat_ref, proposals_feat_ref_dis]
+            proposals_list = [proposals, proposals_ref, proposals_ref_dis, proposals_feat_ref, proposals_feat_ref_dis]
+
+            if self.roi_heads:
+                # feed it through RoI heads and update the memory inside MEGA
+                x, result, detector_losses = self.roi_heads(feats, proposals_list, targets)
+            else:
+                result = proposals
 
 
-        if i == len(local_imgs + [cur]) - 1:
-            self.roi_heads.training = True
+    local_img = cur
+    update_feature(local_img.tensors)
+    feats = self.feats[-1]
+    proposals, proposal_losses = self.rpn(cur, (feats, ), targets)
 
-        if self.roi_heads:
-            x, result, detector_losses = self.roi_heads(feats, proposals_list, targets)
-        else:
-            result = proposals
+    proposals_ref = cat_boxlist(list(self.proposals))
+    proposals_ref_dis = cat_boxlist(list(self.proposals_dis))
+    proposals_feat_ref = torch.cat(list(self.proposals_feat), dim=0)
+    proposals_feat_ref_dis = torch.cat(list(self.proposals_feat_dis), dim=0)
+
+    proposals_list = [proposals, proposals_ref, proposals_ref_dis, proposals_feat_ref, proposals_feat_ref_dis]
+
+    if self.roi_heads:
+        x, result, detector_losses = self.roi_heads(feats, proposals_list, targets)
+    else:
+        result = proposals
 
 
     losses = {}

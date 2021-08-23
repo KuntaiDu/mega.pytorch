@@ -70,6 +70,29 @@ def do_train(
     dataset_names = cfg.DATASETS.TEST
 
     for iteration, (images, targets, _) in enumerate(data_loader, start_iter):
+
+
+        # if (iteration % 100) % 2 == 0:
+        #     for param in model.module.backbone.parameters():
+        #         param.requires_grad = False
+        #     for param in model.module.rpn.parameters():
+        #         param.requires_grad = False
+        #     for param in model.module.roi_heads.parameters():
+        #         param.requires_grad = True
+
+        #     images["ref_l"] = images["ref_l"][:5]
+        #     images["ref_g"] = images["ref_g"][:5]
+        # else:
+        #     for param in model.module.backbone.parameters():
+        #         param.requires_grad = True
+        #     for param in model.module.rpn.parameters():
+        #         param.requires_grad = True
+        #     for param in model.module.roi_heads.parameters():
+        #         param.requires_grad = False
+        #     images["ref_l"] = images["ref_l"][:5]
+        #     images["ref_g"] = images["ref_g"][:5]
+        # model.module.roi_heads.box.feature_extractor.training = False
+
         
         if any(len(target) < 1 for target in targets):
             logger.error(f"Iteration={iteration + 1} || Image Ids used for training {_} || targets Length={[len(target) for target in targets]}" )
