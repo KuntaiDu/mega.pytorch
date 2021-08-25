@@ -28,6 +28,7 @@ class VIDMEGADataset(VIDDataset):
                     self.start_id.append(self.start_index[-1])
 
     def _get_train(self, idx):
+
         filename = self.image_set_index[idx]
         img = Image.open(self._img_dir % filename).convert("RGB")
 

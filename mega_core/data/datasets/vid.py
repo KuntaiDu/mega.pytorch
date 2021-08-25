@@ -17,6 +17,8 @@ else:
 from mega_core.structures.bounding_box import BoxList
 from mega_core.utils.comm import is_main_process
 
+from pdb import set_trace
+
 
 class VIDDataset(torch.utils.data.Dataset):
     classes = ['__background__',  # always index 0
@@ -52,6 +54,8 @@ class VIDDataset(torch.utils.data.Dataset):
 
         self._img_dir = os.path.join(self.img_dir, "%s.JPEG")
         self._anno_path = os.path.join(self.anno_path, "%s.xml")
+
+        print(self.img_index)
 
         with open(self.img_index) as f:
             lines = [x.strip().split(" ") for x in f.readlines()]
@@ -121,6 +125,7 @@ class VIDDataset(torch.utils.data.Dataset):
         for idx in range(len(self)):
             if idx % 10000 == 0:
                 print("Had filtered {} images".format(idx))
+                print(sum(keep))
 
             filename = self.image_set_index[idx]
 

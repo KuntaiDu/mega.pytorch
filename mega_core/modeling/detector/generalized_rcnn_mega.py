@@ -248,6 +248,8 @@ def forward_test(self, imgs, infos, targets=None):
 
 def forward_train_new(self, cur, local_imgs, global_imgs, targets):
 
+    self.roi_heads.box.feature_extractor.training = False
+
 
     def update_feature(img=None, feats=None, proposals=None, proposals_feat=None):
         assert (img is not None) or (feats is not None and proposals is not None and proposals_feat is not None)
