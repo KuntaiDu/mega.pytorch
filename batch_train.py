@@ -14,7 +14,7 @@ from subprocess import run
 window_size = 300
 local_pool = 1
 global_pool = 2
-global_stage = 1
+global_stage = 3
 
 # local stage not sweeped
 local_stage = 2
@@ -23,8 +23,11 @@ nms_top_n = 75
 
 
 
-# for global_stage in [3,2,1]:
-for nms_top_n in [300, 150, 75]:
+# for global_stage in [3,4]:
+for local_stage in [4]:
+# for nms_top_n in [300, 150, 75]:
+
+    output_dir = f"training_dir/MEGA_local_stage_retrain_{global_stage}"
 
     run([
         "python",
@@ -36,8 +39,7 @@ for nms_top_n in [300, 150, 75]:
         "--config-file",
         "configs/MEGA/vid_R_50_C4_MEGA_1x.yaml",
         "--motion-specific",
-        # "OUTPUT_DIR", f"training_dir/MEGA_resnet50_windowsize_{window_size}",
-        "OUTPUT_DIR", f"training_dir/MEGA_nms_top_n_{nms_top_n}",
+        "OUTPUT_DIR", output_dir,
         "MODEL.VID.MEGA.REF_NUM_LOCAL", f"{local_pool}",
         "MODEL.VID.MEGA.REF_NUM_GLOBAL", f"{global_pool}",
         # "MODEL.VID.MEGA.REF_NUM_LOCAL", "10",
