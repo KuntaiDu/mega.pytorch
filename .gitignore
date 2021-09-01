@@ -9,7 +9,6 @@ dist/
 
 # training dirs
 pretrain/
-training_dir/
 visualize*
 *.tar.gz
 *.zip
