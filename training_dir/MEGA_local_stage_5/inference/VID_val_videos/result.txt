@@ -1,0 +1,39 @@
+AP50 | motion=   all = 0.7738
+AP50 | motion=  fast = 0.5701
+AP50 | motion=medium = 0.7587
+AP50 | motion=  slow = 0.8569
+Category AP:
+airplane        : 0.9034
+antelope        : 0.8466
+bear            : 0.8586
+bicycle         : 0.7289
+bird            : 0.7464
+bus             : 0.7369
+car             : 0.5906
+cattle          : 0.7854
+dog             : 0.7559
+domestic_cat    : 0.9045
+elephant        : 0.8409
+fox             : 0.9476
+giant_panda     : 0.8610
+hamster         : 0.9814
+horse           : 0.7873
+lion            : 0.5775
+lizard          : 0.8176
+monkey          : 0.5646
+motorcycle      : 0.8050
+rabbit          : 0.6462
+red_panda       : 0.8239
+sheep           : 0.5603
+snake           : 0.6454
+squirrel        : 0.5778
+tiger           : 0.9152
+train           : 0.8230
+turtle          : 0.8393
+watercraft      : 0.6498
+whale           : 0.7408
+zebra           : 0.9510
+
+IoU: mean 0.56389, std 0.29669
+FN: mean 0.25857, std 0.32947
+box: mean 1.61836, std 5.79391
